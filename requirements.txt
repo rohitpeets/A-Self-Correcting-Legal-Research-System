@@ -1,0 +1,5 @@
+datasets<4.0.0
+nltk
+sentence-transformers
+chromadb
+rank-bm25
