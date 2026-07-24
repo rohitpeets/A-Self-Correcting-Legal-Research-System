@@ -8,4 +8,6 @@ chunks=chunk_contract(test_case,5,1)
 model=SentenceTransformer('all-MiniLM-L6-v2')
 client=chromadb.PersistentClient(path="data/processed/chroma_db")
 collection=client.get_or_create_collection(name="legal_contracts")
+
 query="can the tenenat terminate the lease early?"
+

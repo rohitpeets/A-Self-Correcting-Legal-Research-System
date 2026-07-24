@@ -15,9 +15,13 @@ def bm25_search(query,bm25,chunks,n_results=5):
     score_list=bm25.get_scores(clean_query(query))
     result=[]
     for i in range (len(chunks)):
-        result.append((score_list[i],chunks[i]))
+        result.append((score_list[i],f"chunk_{i}"))
     outlist=sorted(result,reverse=True)
     final=outlist[:n_results]
     return final
 result = bm25_search(query, bm25, chunks)
-print(result)
+out={}
+for i in range(len(result)):
+    num=i+1
+    out[result[i][1]]=num
+bm_ranks=out
