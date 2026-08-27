@@ -4,9 +4,3 @@ def embed_and_chunk(chunks,model,collection):
     collection.add(embeddings=embeddings_list,
                documents=chunks,
                ids=[f"chunk_{i}" for i in range (0,chunk_vectors.shape[0])])
-
-def dense_search(query,model,collection,n_results=5):
-    test_embedding=[model.encode(query)]
-    result=(collection.query(query_embeddings=test_embedding,n_results=n_results))
-    return result['ids'][0]
-

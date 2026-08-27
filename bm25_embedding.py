@@ -18,6 +18,9 @@ def bm25_search(query,chunks,n_results=5):
     result=[]
     for i in range (len(chunks)):
         result.append((score_list[i],f"chunk_{i}"))
-    outlist=sorted(result,reverse=True)
-    final=outlist[:n_results]
+    sorted_list=sorted(result,reverse=True)
+    out_list=sorted_list[:n_results]
+    final=[]
+    for i in range(len(out_list)):
+        final.append(out_list[i][1])
     return final

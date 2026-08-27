@@ -1,27 +1,22 @@
 
-def dense_ranker(id_list):
-    rank_dict = {}
-    for index, chunk_id in enumerate(id_list):
-        rank_dict[chunk_id] = index+1
-    return rank_dict
-
-def bm25_ranker(id_list):
+from settings import RETRIEVE_N
+def to_rank_dict(id_list):
     out={}
     for i in range(len(id_list)):
         num=i+1
-        out[id_list[i][1]]=num
+        out[id_list[i]]=num
     return out
     
-def rrf(query,model,chunks,collection):
+def rrf(query,model,chunks,collection,rrf_n):
 
-    from embedding import dense_search
-    dense_search_list=dense_search(query,model,collection)
-    dense_ranks=dense_ranker(dense_search_list)
+    from dense_search import dense_search
+    dense_search_list=dense_search(query,model,collection,n_results=RETRIEVE_N)
+    dense_ranks=to_rank_dict(dense_search_list)
 
 
     from bm25_embedding import bm25_search
-    bm25_search_list=bm25_search(query,chunks)
-    bm_ranks=bm25_ranker(bm25_search_list)
+    bm25_search_list=bm25_search(query,chunks,n_results=RETRIEVE_N)
+    bm_ranks=to_rank_dict(bm25_search_list)
 
 
     dense_rrf_list=list(dense_ranks.keys())
@@ -45,5 +40,5 @@ def rrf(query,model,chunks,collection):
             score+=(1/(60+vals[1]))
         rrf_out[l]=score
     ranked = sorted(rrf_out.items(), key=lambda x: x[1], reverse=True)
-    top_n_ids = [chunk_id for chunk_id, score in ranked[:10]]
-    return top_n_ids
+    top_n_ids = [chunk_id for chunk_id, score in ranked[:rrf_n]]
+    return top_n_ids[:rrf_n]
