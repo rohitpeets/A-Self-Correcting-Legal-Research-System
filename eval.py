@@ -1,5 +1,6 @@
 import json
 import random
+import re
 from collections import defaultdict
 
 from settings import RERANK_CANDIDATES, FINAL_K
@@ -41,6 +42,16 @@ def load_gold_questions():
     return questions
 
 
+def normalize_whitespace(text):
+    """Collapse whitespace runs the same way chunk_contract() does.
+
+    CUAD's gold answer spans keep the source PDF's raw spacing (multiple
+    spaces, stray newlines), but chunks are built from whitespace-collapsed
+    text -- without this, an identical passage never matches as a substring.
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def find_gold_chunk_ids(gold_texts):
     """Chunks whose text contains a gold answer span.
 
@@ -50,9 +61,9 @@ def find_gold_chunk_ids(gold_texts):
     """
     ids = set()
     for text in gold_texts:
-        if len(text) < MIN_GOLD_TEXT_LEN:
+        needle = normalize_whitespace(text).lower()
+        if len(needle) < MIN_GOLD_TEXT_LEN:
             continue
-        needle = text.lower()
         prefix = needle[:60]
         for i, chunk in enumerate(chunks):
             chunk_lower = chunk.lower()
@@ -67,12 +78,23 @@ def recall_at_k(retrieved_ids, gold_ids, k):
     return 1.0 if set(retrieved_ids[:k]) & gold_ids else 0.0
 
 
-def evaluate_question(q, route):
-    gold_ids = find_gold_chunk_ids(q["gold_texts"]) if q["answerable"] else set()
-    if q["answerable"] and not gold_ids:
-        return None  # gold text not locatable in any chunk; skip rather than mis-score
+def evaluate_question(q, gold_ids, route):
+    try:
+        result = answer_query(q["question"], route=route)
+    except Exception as e:
+        print(f"EVAL ROW FAILED ({route}): {q['question'][:60]!r}: {e!r}")
+        return {
+            "question": q["question"],
+            "answerable": q["answerable"],
+            "route": route,
+            "retrieval_recall": None,
+            "rerank_recall": None,
+            "abstain_correct": None,
+            "citation_correct": None,
+            "verified": None,
+            "error": repr(e),
+        }
 
-    result = answer_query(q["question"], route=route)
     retrieved_ids = result["retrieved"]
     reranked_ids = [chunk_id for chunk_id, _score in result["reranked"]]
 
@@ -92,20 +114,30 @@ def evaluate_question(q, route):
         "abstain_correct": abstain_correct,
         "citation_correct": citation_correct,
         "verified": result["verified"],
+        "error": None,
     }
 
 
 def summarize(rows):
-    def avg(key, keep=lambda r: True):
+    def avg_and_n(key, keep=lambda r: True):
         vals = [r[key] for r in rows if keep(r) and r[key] is not None]
-        return sum(vals) / len(vals) if vals else None
+        return (sum(vals) / len(vals) if vals else None), len(vals)
+
+    retrieval_recall, retrieval_n = avg_and_n("retrieval_recall")
+    rerank_recall, rerank_n = avg_and_n("rerank_recall")
+    abstain_acc, abstain_n = avg_and_n("abstain_correct")
+    citation_acc, citation_n = avg_and_n("citation_correct", lambda r: r["answerable"])
 
     return {
         "n": len(rows),
-        f"retrieval_recall@{RERANK_CANDIDATES}": avg("retrieval_recall"),
-        f"rerank_recall@{FINAL_K}": avg("rerank_recall"),
-        "abstain_accuracy": avg("abstain_correct"),
-        "citation_accuracy": avg("citation_correct", lambda r: r["answerable"]),
+        f"retrieval_recall@{RERANK_CANDIDATES}": retrieval_recall,
+        f"retrieval_recall@{RERANK_CANDIDATES}_n": retrieval_n,
+        f"rerank_recall@{FINAL_K}": rerank_recall,
+        f"rerank_recall@{FINAL_K}_n": rerank_n,
+        "abstain_accuracy": abstain_acc,
+        "abstain_accuracy_n": abstain_n,
+        "citation_accuracy": citation_acc,
+        "citation_accuracy_n": citation_n,
     }
 
 
@@ -115,39 +147,45 @@ def run_eval(routes=ROUTES, limit=None, seed=42):
     if limit:
         questions = questions[:limit]
 
+    usable = []
+    skipped = 0
+    for q in questions:
+        gold_ids = find_gold_chunk_ids(q["gold_texts"]) if q["answerable"] else set()
+        if q["answerable"] and not gold_ids:
+            skipped += 1  # gold text not locatable in any chunk; skip rather than mis-score
+            continue
+        usable.append((q, gold_ids))
+
     rows_by_route = {}
     for route in routes:
-        rows = []
-        for q in questions:
-            row = evaluate_question(q, route)
-            if row is not None:
-                rows.append(row)
-        rows_by_route[route] = rows
+        rows_by_route[route] = [evaluate_question(q, gold_ids, route) for q, gold_ids in usable]
 
     summary = {route: summarize(rows) for route, rows in rows_by_route.items()}
-    print_summary(summary)
+    print_summary(summary, total_questions=len(questions), skipped=skipped)
 
     with open(RESULTS_PATH, "w", encoding="utf-8") as f:
-        json.dump({"summary": summary, "rows": rows_by_route}, f, indent=2)
+        json.dump({"summary": summary, "skipped_unlocatable": skipped, "rows": rows_by_route}, f, indent=2)
     print(f"\nFull results written to {RESULTS_PATH}")
 
     return summary
 
 
-def print_summary(summary):
+def print_summary(summary, total_questions, skipped):
     def fmt(v):
         return f"{v:.2f}" if v is not None else "n/a"
 
-    headers = ["route", "n", f"recall@{RERANK_CANDIDATES}", f"recall@{FINAL_K}", "abstain_acc", "citation_acc"]
-    print(f"{headers[0]:<10} {headers[1]:>4} {headers[2]:>10} {headers[3]:>10} {headers[4]:>12} {headers[5]:>13}")
+    print(
+        f"{total_questions} unique gold questions, {skipped} answerable ones skipped "
+        f"(gold text not locatable in any single chunk) -> {total_questions - skipped} scored per route\n"
+    )
+    headers = ["route", "recall@10 (n)", "recall@5 (n)", "abstain_acc (n)", "citation_acc (n)"]
+    print(f"{headers[0]:<10} {headers[1]:>16} {headers[2]:>16} {headers[3]:>18} {headers[4]:>18}")
     for route, s in summary.items():
-        print(
-            f"{route:<10} {s['n']:>4} "
-            f"{fmt(s[f'retrieval_recall@{RERANK_CANDIDATES}']):>10} "
-            f"{fmt(s[f'rerank_recall@{FINAL_K}']):>10} "
-            f"{fmt(s['abstain_accuracy']):>12} "
-            f"{fmt(s['citation_accuracy']):>13}"
-        )
+        recall10 = f"{fmt(s[f'retrieval_recall@{RERANK_CANDIDATES}'])} ({s[f'retrieval_recall@{RERANK_CANDIDATES}_n']})"
+        recall5 = f"{fmt(s[f'rerank_recall@{FINAL_K}'])} ({s[f'rerank_recall@{FINAL_K}_n']})"
+        abstain = f"{fmt(s['abstain_accuracy'])} ({s['abstain_accuracy_n']})"
+        citation = f"{fmt(s['citation_accuracy'])} ({s['citation_accuracy_n']})"
+        print(f"{route:<10} {recall10:>16} {recall5:>16} {abstain:>18} {citation:>18}")
 
 
 if __name__ == "__main__":

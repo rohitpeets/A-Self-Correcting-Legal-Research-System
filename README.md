@@ -148,6 +148,22 @@ User query
 
 ---
 
+## Ablation Results
+
+Run via `python eval.py` against all 41 unique CUAD-QA gold questions for the sample contract, forcing each of the three retrieval routes in turn (bypassing the classifier) so they're compared on identical questions:
+
+| route | recall@10 | recall@5 (post-rerank) | abstain accuracy | citation accuracy |
+|---|---|---|---|---|
+| keyword | 0.68 | 0.53 | 0.68 | 0.56 (n=9) |
+| semantic | 0.74 | 0.63 | 0.68 | 0.43 (n=7) |
+| hybrid | 0.79 | 0.53 | 0.73 | 0.20 (n=10) |
+
+- **Hybrid retrieves the gold passage most often, but doesn't produce the most correctly-cited answers.** It leads on `recall@10` (0.79) and abstain accuracy (0.73), but has the *lowest* citation accuracy of the three. Retrieving the right chunk more often didn't translate into the generation step citing it correctly more often — a real finding this project's own premise ("measure which components earn their complexity") predicts could happen, not a result that was assumed going in.
+- **Small sample sizes, read with caution.** `citation_accuracy` is only computed over answerable questions the system chose not to abstain on — 7 to 10 questions per route out of 41 total. This run also overlapped with some transient Groq API errors (rate limiting, dropped connections) that `guardrails.py`'s fail-closed design and `Generation.py`'s existing error handling correctly turned into abstains rather than crashes, but that also shrank the citation-accuracy sample further for the affected rows. Directionally informative, not a statistically strong claim — a larger or multi-contract eval set would be the natural next step.
+- Full per-question output: `data/processed/eval_results.json`.
+
+---
+
 ## Confusing Things & Decisions Made
 
 - **Why rank dicts are `{chunk_id: rank}` and not `{rank: chunk_id}`.** The first version stored rank as the key. That's readable for printing an ordered list, but every real operation needed ("what rank did this specific chunk get from each retriever?") requires looking a chunk up by ID — which meant an O(n) scan through the whole dict every time. Flipping to `{chunk_id: rank}` makes that an O(1) `.get()`, which is what RRF fusion does repeatedly. Lesson: pick the dict orientation based on how you'll query it, not how you'll print it.
@@ -160,6 +176,7 @@ User query
 - **Why `verify.py` uses `max_tokens=512` for a one-word YES/NO verdict.** `openai/gpt-oss-20b` (also used for routing) is a reasoning model — it spends part of its token budget on a hidden `reasoning` field before writing the visible answer. With a tight `max_tokens=5`, the budget was consumed entirely by reasoning and the visible `content` came back empty, which parsed as "not grounded" and made every answer abstain regardless of correctness. The fix isn't about verbosity, it's giving the model room to finish reasoning before it outputs the word being parsed.
 - **Why `guardrails.py` parses the Prompt Guard response as a float, not a label.** `meta-llama/llama-prompt-guard-2-86m` doesn't reply with a normal chat message — its `content` field is a bare numeric string (e.g. `"0.9996"`), the model's estimated probability that the input is a prompt-injection/jailbreak attempt. Treating it like a normal chat reply and checking `.startswith("YES")` or similar would silently always fail; it has to be parsed as `float(...)` and compared against a threshold instead.
 - **Why every module imports `from settings import ...` in lowercase, even though it's easy to typo as `Settings`.** The file is tracked in git as `settings.py`. Windows' filesystem is case-insensitive, so a local rename to `Settings.py` (or a stray `from Settings import ...`) works silently on this machine but would fail with `ModuleNotFoundError` the moment the repo is cloned onto a case-sensitive filesystem — Linux CI, most deployment targets, some macOS setups. Several imports drifted to the capitalized form during development without anyone noticing, precisely because the bug is invisible on Windows.
+- **Why `cross_encoder.py` caches the `CrossEncoder` instance instead of constructing one per call.** Each construction re-hits the HuggingFace Hub for model metadata even when the weights are already cached locally — fine for a single interactive query, but `eval.py` calls it well over a hundred times in one run, which was both slow and fragile: one dropped connection mid-run took the entire ablation eval down with it, discovered the hard way after a ~20-minute run threw `httpx.ReadError` at the very end with nothing saved. Loading it once into a module-level variable fixed both the speed and the reliability.
 - **Why `eval.py` groups CUAD-QA rows by question text before scoring.** CUAD repeats the same question text once per clause instance it applies to (e.g. "Parties" appears once per party named in the contract), so the raw dataset has multiple rows sharing one question with different single-span answers. Scoring each row independently would unfairly penalize the system for citing a different — but still valid — gold location than the one a particular row happened to record. Grouping by question and unioning the answer spans into one gold set per unique question fixes that.
 
 ---
