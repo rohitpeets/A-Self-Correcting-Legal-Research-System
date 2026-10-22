@@ -1,0 +1,108 @@
+{
+  "contracts": 102,
+  "answerable_scored": 1242,
+  "answerable_skipped_gold_unlocatable": 2,
+  "unanswerable_not_scored": 2938,
+  "scored_over_max_query_chars": 33,
+  "ci_method": "95% bootstrap, contracts resampled (2000 iters, seed 0)",
+  "metrics": {
+    "recall@10": {
+      "keyword": {
+        "hits": 909,
+        "n": 1242,
+        "value": 0.7318840579710145,
+        "ci95": [
+          0.6988679245283019,
+          0.7666948436179205
+        ]
+      },
+      "semantic": {
+        "hits": 924,
+        "n": 1242,
+        "value": 0.7439613526570048,
+        "ci95": [
+          0.7125748502994012,
+          0.7772108843537415
+        ]
+      },
+      "hybrid": {
+        "hits": 960,
+        "n": 1242,
+        "value": 0.7729468599033816,
+        "ci95": [
+          0.7466027178257394,
+          0.8003341687552213
+        ]
+      },
+      "hybrid_vs_keyword": {
+        "hybrid_only_hits": 107,
+        "keyword_only_hits": 56,
+        "diff": 0.04106280193236715,
+        "diff_ci95": [
+          0.013524936601859678,
+          0.06973058637083994
+        ],
+        "mcnemar_exact_p": 7.945707619736947e-05
+      },
+      "hybrid_vs_semantic": {
+        "hybrid_only_hits": 84,
+        "semantic_only_hits": 48,
+        "diff": 0.028985507246376812,
+        "diff_ci95": [
+          0.007855459544383346,
+          0.048841059602649006
+        ],
+        "mcnemar_exact_p": 0.002193533062539542
+      }
+    },
+    "rerank_recall@5": {
+      "keyword": {
+        "hits": 778,
+        "n": 1242,
+        "value": 0.6264090177133655,
+        "ci95": [
+          0.5924132364810331,
+          0.6608238387379491
+        ]
+      },
+      "semantic": {
+        "hits": 787,
+        "n": 1242,
+        "value": 0.6336553945249598,
+        "ci95": [
+          0.5982008995502249,
+          0.6686541737649063
+        ]
+      },
+      "hybrid": {
+        "hits": 791,
+        "n": 1242,
+        "value": 0.6368760064412239,
+        "ci95": [
+          0.6014150943396226,
+          0.6723027375201288
+        ]
+      },
+      "hybrid_vs_keyword": {
+        "hybrid_only_hits": 85,
+        "keyword_only_hits": 72,
+        "diff": 0.010466988727858293,
+        "diff_ci95": [
+          -0.013964313421256789,
+          0.0376
+        ],
+        "mcnemar_exact_p": 0.3382353307950119
+      },
+      "hybrid_vs_semantic": {
+        "hybrid_only_hits": 55,
+        "semantic_only_hits": 51,
+        "diff": 0.00322061191626409,
+        "diff_ci95": [
+          -0.01584786053882726,
+          0.021809369951534735
+        ],
+        "mcnemar_exact_p": 0.7709189909371138
+      }
+    }
+  }
+}
