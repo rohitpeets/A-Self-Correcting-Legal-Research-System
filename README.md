@@ -60,6 +60,7 @@ The dataset is CUAD (Contract Understanding Atticus Dataset), a real-world corpu
 | `guardrails.py` | Input guardrails run before anything else: a length cap (`MAX_QUERY_CHARS`) and Groq's `llama-prompt-guard-2-86m` classifier to catch prompt-injection/jailbreak attempts; either one tripping short-circuits straight to an abstained response |
 | `app.py` | Wires the full pipeline together (`guardrails -> classify -> retrieve -> rerank -> generate -> verify`) via `answer_query()`, and runs an interactive Q&A loop |
 | `eval.py` | Ablation harness: pulls CUAD-QA's own gold question/answer pairs for the sample contract, runs each through all three retrieval routes via `answer_query()`, and reports retrieval recall, abstain accuracy, and citation accuracy per route |
+| `eval_cuad_large.py` | Retrieval-only ablation on any CUAD SQuAD-format file (e.g. the 102-contract test split), no LLM calls; reports recall per route with contract-level bootstrap CIs and paired McNemar tests |
 | `find_chunk.py` | Dev script: searches the chunks already built by `app.py` for a literal term, to sanity-check what a given query should be able to retrieve |
 | `test.py` | Evaluation harness for the query router — runs 10 hand-labeled questions through `classify()` and prints PASS/FAIL per case plus an overall score |
 
@@ -149,6 +150,23 @@ User query
 ---
 
 ## Ablation Results
+
+### Retrieval on the full CUAD test split (102 contracts, 1,242 questions)
+
+Run via `python eval_cuad_large.py CUAD_v1/test.json <out.json>` on CUAD's official test split, which this project never used during development (file sha256 `007b6a40…a1a073`). Retrieval only, no LLM calls: each answerable question goes through all three routes with the same chunking, BM25 tokenizer, RRF (k=60) and sizes as the live pipeline, then the cross-encoder reranks each route's top 10 to a top 5. 1,242 of 1,244 answerable questions scored (2 skipped because their gold span couldn't be located in any chunk).
+
+| route | recall@10 [95% CI] | recall@5 after rerank [95% CI] |
+|---|---|---|
+| keyword | 0.732 (909/1242) [0.699, 0.767] | 0.626 (778/1242) [0.592, 0.661] |
+| semantic | 0.744 (924/1242) [0.713, 0.777] | 0.634 (787/1242) [0.598, 0.669] |
+| hybrid | **0.773** (960/1242) [0.747, 0.800] | 0.637 (791/1242) [0.601, 0.672] |
+
+- **Hybrid retrieval wins, and the win is significant.** Paired on the same questions, hybrid finds the gold passage where keyword misses it 107 times vs 56 the other way (+4.1 pts, 95% CI [+1.4, +7.0], McNemar p < 0.001), and beats semantic 84 vs 48 (+2.9 pts, CI [+0.8, +4.9], p = 0.002).
+- **The reranker erases the gap.** After cross-encoder reranking to the top 5, all three routes land within 1 point of each other and no difference is significant (p = 0.34 and 0.77). Hybrid's extra candidates matter only if they survive reranking, which points at the reranker (or `FINAL_K`) as the next thing to tune.
+- Not re-measured at this scale: abstain and citation accuracy, which need three Groq calls per question. Those remain the 41-question single-contract pilot below.
+- Summary: `data/processed/eval_cuad_test_summary.json` (rerun the script to regenerate per-question rows).
+
+### Single-contract pilot (41 questions)
 
 Run via `python eval.py` against all 41 unique CUAD-QA gold questions for the sample contract, forcing each of the three retrieval routes in turn (bypassing the classifier) so they're compared on identical questions:
 
